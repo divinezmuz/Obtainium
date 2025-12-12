@@ -2,7 +2,6 @@ import 'package:html/parser.dart';
 import 'package:http/http.dart';
 import 'package:obtainium/custom_errors.dart';
 import 'package:obtainium/providers/source_provider.dart';
-import 'package:obtainium/app_sources/html.dart';
 
 class Moddroid extends AppSource {
   Moddroid() {
@@ -16,10 +15,7 @@ class Moddroid extends AppSource {
     var match = pattern.firstMatch(url);
     
     if (match != null) {
-      String type = match.group(1)!;
-      String category = match.group(2)!;
-      String appName = match.group(3)!;
-      return 'https://moddroid.com/$type/$category/$appName/';
+      return 'https://moddroid.com/${match.group(1)}/${match.group(2)}/${match.group(3)}/';
     }
     
     throw ObtainiumError('Invalid Moddroid URL format');
@@ -31,26 +27,19 @@ class Moddroid extends AppSource {
     Map<String, dynamic> additionalSettings,
   ) async {
     try {
-      Response mainPageRes = await sourceRequest(standardUrl, additionalSettings);
-      if (mainPageRes.statusCode != 200) {
-        throw getObtainiumHttpError(mainPageRes);
-      }
+      // Fetch main page
+      Response mainRes = await sourceRequest(standardUrl, additionalSettings);
+      if (mainRes.statusCode != 200) throw getObtainiumHttpError(mainRes);
       
-      var mainHtml = parse(mainPageRes.body);
-      
-      var allLinks = mainHtml.querySelectorAll('a');
+      var mainHtml = parse(mainRes.body);
+     
       String? intermediateUrl;
-      
-      for (var link in allLinks) {
+      for (var link in mainHtml.querySelectorAll('a')) {
         var href = link.attributes['href'];
         if (href != null) {
-          var absoluteUrl = ensureAbsoluteUrl(href, Uri.parse(standardUrl));
-          
-          if (absoluteUrl.startsWith(standardUrl) && 
-              absoluteUrl.length > standardUrl.length &&
-              RegExp(r'/[A-Za-z0-9]+/$').hasMatch(absoluteUrl) &&
-              !absoluteUrl.contains('dl.lingmod.top')) {
-            intermediateUrl = absoluteUrl;
+          var url = ensureAbsoluteUrl(href, Uri.parse(standardUrl));
+          if (RegExp(r'moddroid\.com/(apps|games)/.+/[A-Za-z0-9]+/$').hasMatch(url)) {
+            intermediateUrl = url;
             break;
           }
         }
@@ -60,19 +49,15 @@ class Moddroid extends AppSource {
         throw NoReleasesError(note: 'Could not find download page');
       }
       
-      Response intermediateRes = await sourceRequest(intermediateUrl, additionalSettings);
-      if (intermediateRes.statusCode != 200) {
-        throw getObtainiumHttpError(intermediateRes);
-      }
+      Response intRes = await sourceRequest(intermediateUrl, additionalSettings);
+      if (intRes.statusCode != 200) throw getObtainiumHttpError(intRes);
       
-      var intermediateHtml = parse(intermediateRes.body);
+      var intHtml = parse(intRes.body);
       
       String? apkUrl;
-      for (var link in intermediateHtml.querySelectorAll('a')) {
+      for (var link in intHtml.querySelectorAll('a')) {
         var href = link.attributes['href'];
-        if (href != null && 
-            href.contains('cdn.topmongo.com') && 
-            href.endsWith('.apk')) {
+        if (href != null && RegExp(r'cdn\.topmongo\.com/.*\.apk$').hasMatch(href)) {
           apkUrl = href;
           break;
         }
@@ -82,27 +67,17 @@ class Moddroid extends AppSource {
         throw NoReleasesError(note: 'Could not find APK download link');
       }
       
-      String? version;
-      var title = mainHtml.querySelector('title')?.text ?? '';
-      var versionMatch = RegExp(r'v?(\d+[\d\.\-_]+\d+)').firstMatch(title);
-      if (versionMatch != null) {
-        version = versionMatch.group(1);
-      }
+      var versionMatch = RegExp(r'\d+\.\d+(\.\d+)?').firstMatch(apkUrl);
+      String version = versionMatch?.group(0) ?? apkUrl.hashCode.abs().toString();
       
-      version ??= RegExp(r'[\d\.]+').firstMatch(apkUrl)?.group(0);
-      version ??= apkUrl.hashCode.abs().toString();
+      var title = mainHtml.querySelector('title')?.text ?? 'Moddroid App';
+      String appName = title
+          .replaceAll(' MOD APK', '')
+          .replaceAll(RegExp(r' v?[\d\.]+.*'), '')
+          .trim();
+      if (appName.isEmpty) appName = 'Moddroid App';
       
-      var appNameMatch = RegExp(r'<title>([^<]+)</title>').firstMatch(mainPageRes.body);
-      String appName = 'Moddroid App';
-      if (appNameMatch != null) {
-        appName = appNameMatch.group(1)!
-            .replaceAll(' MOD APK', '')
-            .replaceAll(RegExp(r' v?[\d\.]+.*'), '')
-            .trim();
-      }
-      
-      var uri = Uri.parse(apkUrl);
-      var fileName = uri.pathSegments.isNotEmpty ? uri.pathSegments.last : 'app.apk';
+      var fileName = Uri.parse(apkUrl).pathSegments.last;
       
       return APKDetails(
         version,
@@ -111,9 +86,7 @@ class Moddroid extends AppSource {
       );
       
     } catch (e) {
-      if (e is ObtainiumError) {
-        rethrow;
-      }
+      if (e is ObtainiumError) rethrow;
       throw ObtainiumError('Failed to get Moddroid app details: $e');
     }
   }
