@@ -19,56 +19,24 @@ jobs:
           channel: stable
       - uses: actions/setup-java@v4
         with:
-          distribution: 'temurin' # See 'Supported distributions' for available options
+          distribution: 'temurin'
           java-version: '21'
 
       - name: Flutter Doctor
-        id: flutter_doctor
         run: |
           flutter doctor -v
 
-      - name: Check submodule
-        id: check_submodule
+      - name: Use Debug Signing
         run: |
-          git checkout ${{ inputs.checkout }}
+          sed -i 's/signingConfig = signingConfigs.getByName("release")/signingConfig = signingConfigs.getByName("debug")/g' android/app/build.gradle.kts
 
-      - name: Extract Version
-        id: extract_version      
+      - name: Build APK
         run: |
-          VERSION=$(grep -oP "^version: [^\+]+" pubspec.yaml | tail -c +10)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          if [ ${{ inputs.beta }} == true ]; then BETA=true; else BETA=false; fi
-          echo "beta=$BETA" >> $GITHUB_OUTPUT
-          TAG="v$VERSION"
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          flutter build apk --split-per-abi --target-platform android-arm64 --flavor normal
+          ls -lh ./build/app/outputs/flutter-apk/
 
-      - name: Build APKs
-        run: |
-          sed -i 's/signingConfig = signingConfigs.getByName("release")//g' android/app/build.gradle.kts
-          flutter build apk --flavor normal && flutter build apk --split-per-abi --flavor normal
-          for file in build/app/outputs/flutter-apk/app-*normal*.apk*; do mv "$file" "${file//-normal/}"; done
-          flutter build apk --flavor fdroid -t lib/main_fdroid.dart && flutter build apk --split-per-abi --flavor fdroid -t lib/main_fdroid.dart
-          rm ./build/app/outputs/flutter-apk/*.sha1
-          cp ./sign.sh ./build/app/outputs/flutter-apk/
-          ls -l ./build/app/outputs/flutter-apk/
-
-      - name: Save Unsigned APKs as Action Artifacts
+      - name: Save APK as Action Artifact
         uses: actions/upload-artifact@v4
         with:
-          path: build/app/outputs/flutter-apk/*
-
-      - name: Create Tag
-        uses: mathieudutour/github-tag-action@v6.1
-        with:
-          github_token: ${{ secrets.GH_ACCESS_TOKEN }}
-          custom_tag: "${{ steps.extract_version.outputs.tag }}"
-          tag_prefix: ""
-      
-      - name: Create Draft Release
-        uses: ncipollo/release-action@v1
-        with:
-          token: ${{ secrets.GH_ACCESS_TOKEN }}
-          tag: "${{ steps.extract_version.outputs.tag }}"
-          prerelease: "${{ steps.extract_version.outputs.beta }}"
-          draft: "true"
-          generateReleaseNotes: true
+          name: obtainium-moddroid-test
+          path: build/app/outputs/flutter-apk/*.apk
