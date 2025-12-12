@@ -27,17 +27,19 @@ class Moddroid extends AppSource {
     Map<String, dynamic> additionalSettings,
   ) async {
     try {
-      // Fetch main page
       Response mainRes = await sourceRequest(standardUrl, additionalSettings);
       if (mainRes.statusCode != 200) throw getObtainiumHttpError(mainRes);
       
       var mainHtml = parse(mainRes.body);
-     
+      var baseUrl = Uri.parse(standardUrl);
+      
       String? intermediateUrl;
       for (var link in mainHtml.querySelectorAll('a')) {
         var href = link.attributes['href'];
         if (href != null) {
-          var url = ensureAbsoluteUrl(href, Uri.parse(standardUrl));
+          // FIX: Use standard Dart Uri resolution instead of missing helper
+          var url = baseUrl.resolve(href).toString();
+          
           if (RegExp(r'moddroid\.com/(apps|games)/.+/[A-Za-z0-9]+/$').hasMatch(url)) {
             intermediateUrl = url;
             break;
